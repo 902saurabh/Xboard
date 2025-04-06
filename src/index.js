@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard } = require('electron');
+const { app, BrowserWindow, clipboard, ipcMain } = require('electron');
 const path = require('node:path');
 const Datastore = require('nedb');
 
@@ -27,20 +27,78 @@ const createWindow = () => {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   // Open the DevTools.
   mainWindow.webContents.openDevTools();
-  let count = 0;
-  setInterval(()=> {
+  setInterval(async ()=> {
     let copied_data = clipboard.readText();
     
     if (copied_data) {
-      count++;
-
-      db.insert({count : copied_data + new Date().toString()}, function (err, newDoc) {
-        if (err) console.log(err);
-        console.log('Inserted new document:', newDoc);
-      });
+      const lastRecord = await findDocument({ 
+          query: {}, 
+          sort: { date: -1 }, // 1 is asc and -1 is desc
+          limit: 1
+        });
+      // console.log('Last Record', copied_data, lastRecord);
+      if (!lastRecord || lastRecord[0].content !== copied_data) {
+        db.insert({ 'date': new Date().getTime(), 'content': copied_data }, function (err, newDoc) {
+          if (err) console.log(err);
+          console.log('Inserted new document:', newDoc);
+        });
+      }
     }
   }, 2000);
 
+  ipcMain.handle('find-documents', async (event, { query, sort, limit, offset }) => {
+    return new Promise((resolve, reject) => {
+      let cursor = db.find(query);
+  
+      if (sort) {
+        cursor = cursor.sort(sort);
+      }
+  
+      if (offset !== undefined) {
+        cursor = cursor.skip(offset);
+      }
+  
+      if (limit !== undefined) {
+        cursor = cursor.limit(limit);
+      }
+  
+      cursor.exec((err, docs) => {
+        if (err) reject(err);
+        else resolve(docs);
+      });
+    });
+  });
+  // findDocument({ 
+  //   query: {}, 
+  //   sort: { date: -1 }, // 1 is asc and -1 is desc
+  //   limit: 1, 
+  //   offset: 1 
+  // }).then((data) => {
+  //   console.log(data)
+  // })
+};
+
+ const findDocument = ({ query, sort, limit, offset }) => {
+  return new Promise((resolve, reject) => {
+    let cursor = db.find(query);
+
+    if (sort) {
+      cursor = cursor.sort(sort);
+    }
+
+    if (offset !== undefined) {
+      cursor = cursor.skip(offset);
+    }
+
+    if (limit !== undefined) {
+      cursor = cursor.limit(limit);
+    }
+
+    cursor.exec((err, docs) => {
+      if (err) reject(err);
+      else resolve(docs);
+    });
+  });
 };
 
 // This method will be called when Electron has finished
